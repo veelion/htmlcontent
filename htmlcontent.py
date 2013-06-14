@@ -18,6 +18,7 @@ class Extractor(object):
         m = re.search(r, html, re.I)
         if m:
             return m.groups()[0].lower()
+        #TODO: detect charset using chardet
         return 'utf-8'
 
     def get_text(self, doc, is_parent=False):
