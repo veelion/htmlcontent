@@ -53,8 +53,10 @@ class Extractor(object):
             html = html.decode(encoding, 'ignore')
         doc = lxml.html.fromstring(html)
 
+        # 1. find the longest text block, which is the main content
         body = doc.xpath('//body')
         if not body:
+            print 'no body, parse whole document tree'
             body = doc
         else:
             body = body[0]
@@ -64,22 +66,18 @@ class Extractor(object):
         while elements:
             p = elements.pop(0)
             tlen = 0
+            if p.text:
+                tlen += len(p.text.strip())
             for el in p.iterchildren():
                 if (el.tag in self.non_content_tag or
                     isinstance(el, HtmlComment)):
-                    el.clear()
-                    el.drop_tree()
                     continue
                 elements.append(el)
-                t = el.text
-                if not t: continue
-                t = t.strip()
-                if len(t)  > 0:
+                if el.text:
+                    t = el.text.strip()
                     tlen += len(t)
-            if tlen < 10:
-                #print 'appending candidate:', tlen
-                #candidates.append((tlen, p))
-                continue
+                if el.tail:
+                    tlen += len(el.tail.strip())
             if last_max_len and tlen > 50*last_max_len:
                 print 'break at: ', last_max_len, tlen
                 last_max_len = tlen
@@ -91,22 +89,26 @@ class Extractor(object):
         if good_el is None:
             print 'no good_el'
             return ''
+        print 'max_len:', last_max_len
+        # 2. remove non content tag, e.g. 'script, style'
+        for el in good_el.iter():
+            if el.tag in self.non_content_tag or isinstance(el, HtmlComment):
+                el.clear()
+                el.drop_tree()
+        # 3. return the main content without title
         if just_content:
             if with_tag:
                 return lxml.html.tostring(good_el, encoding="utf8")
             else:
                 return self.get_text(good_el)
 
-        ## clean the content element's parent
+        # 4. clean the content element's parent,
+        #    which has title, author and other information
         p = good_el.getparent()
         already_has_good = False
         for el in p.iterchildren():
             if el == good_el:
                 already_has_good = True
-                continue
-            if el.tag in self.non_content_tag or isinstance(el, HtmlComment):
-                el.clear()
-                el.drop_tree()
                 continue
             if not el.text:
                 print 'drop tag:', el.tag
@@ -125,9 +127,6 @@ class Extractor(object):
             return self.get_text(p, is_parent=True)
 
 
-
-
-
 if __name__ == '__main__':
     from sys import argv, exit
     if len(argv) != 2:
@@ -139,7 +138,14 @@ if __name__ == '__main__':
     ext = Extractor()
     import time
     b = time.time()
-    content = ext.get_content(html, False, with_tag=True)
+    content = ext.get_content(html, just_content=True, with_tag=True)
     e = time.time()
-    print 'time cost: ', e-b
+    print 'time cost for just content: ', e-b
     open(f+'-content.html','w').write(content)
+
+    b = time.time()
+    content = ext.get_content(html, just_content=False, with_tag=True)
+    e = time.time()
+    print 'time cost for title-plus: ', e-b
+    open(f+'-with-title.html', 'w').write(content)
+
